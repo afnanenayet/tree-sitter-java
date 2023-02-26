@@ -91,7 +91,6 @@ module.exports = grammar({
       $.false,
       $.character_literal,
       $.string_literal,
-      $.text_block,
       $.null_literal
     ),
 
@@ -144,28 +143,58 @@ module.exports = grammar({
     false: $ => 'false',
 
     character_literal: $ => token(seq(
-      "'",
+      '\'',
       repeat1(choice(
         /[^\\'\n]/,
         /\\./,
         /\\\n/
       )),
-      "'"
+      '\''
     )),
 
-    string_literal: $ => token(choice(
-      seq('"', repeat(choice(/[^\\"\n]/, /\\(.|\n)/)), '"'),
-      // TODO: support multiline string literals by debugging the following:
-      // seq('"', repeat(choice(/[^\\"\n]/, /\\(.|\n)/)), '"', '+', /\n/, '"', repeat(choice(/[^\\"\n]/, /\\(.|\n)/)))
-    )),
-
-    text_block: $ => token(
-      seq(
-        /"""\s*\n/,
-        optional(/([^"]|("[^"])|(""[^"]))+/),
-        '"""'
-      )
+    string_literal: $ => choice($._string_literal, $._multiline_string_literal),
+    _string_literal: $ => seq(
+      '"',
+      repeat(choice(
+        $.string_fragment,
+        $.escape_sequence,
+      )),
+      '"'
     ),
+    _multiline_string_literal: $ => seq(
+      '"""',
+      repeat(choice(
+        alias($._multiline_string_fragment, $.multiline_string_fragment),
+        $._escape_sequence,
+      )),
+      '"""'
+    ),
+    // Workaround to https://github.com/tree-sitter/tree-sitter/issues/1156
+    // We give names to the token() constructs containing a regexp
+    // so as to obtain a node in the CST.
+    //
+    string_fragment: $ =>
+      token.immediate(prec(1, /[^"\\]+/)),
+    _multiline_string_fragment: () =>
+      prec.right(choice(
+        /[^"]+/,
+        seq(/"[^"]*/, repeat(/[^"]+/))
+      )),
+
+    _escape_sequence: $ =>
+      choice(
+        prec(2, token.immediate(seq('\\', /[^abfnrtvxu'\"\\\?]/))),
+        prec(1, $.escape_sequence)
+      ),
+    escape_sequence: () => token.immediate(seq(
+      '\\',
+      choice(
+        /[^xu0-7]/,
+        /[0-7]{1,3}/,
+        /x[0-9a-fA-F]{2}/,
+        /u[0-9a-fA-F]{4}/,
+        /u{[0-9a-fA-F]+}/
+      ))),
 
     null_literal: $ => 'null',
 
@@ -331,7 +360,7 @@ module.exports = grammar({
       optional($.class_body)
     )),
 
-    field_access: $ => prec.dynamic(PREC.OBJ_ACCESS, seq(
+    field_access: $ => seq(
       field('object', choice($.primary_expression, $.super)),
       optional(seq(
         '.',
@@ -339,7 +368,7 @@ module.exports = grammar({
       )),
       '.',
       field('field', choice($.identifier, $._reserved_identifier, $.this))
-    )),
+    ),
 
     array_access: $ => seq(
       field('array', $.primary_expression),
@@ -444,7 +473,7 @@ module.exports = grammar({
       $.continue_statement,
       $.return_statement,
       $.yield_statement,
-      $.switch_expression, //switch statements and expressions are identical
+      $.switch_expression, // switch statements and expressions are identical
       $.synchronized_statement,
       $.local_variable_declaration,
       $.throw_statement,
