@@ -179,14 +179,12 @@ module.exports = grammar({
     // Workaround to https://github.com/tree-sitter/tree-sitter/issues/1156
     // We give names to the token() constructs containing a regexp
     // so as to obtain a node in the CST.
-    //
-    string_fragment: $ =>
-      token.immediate(prec(1, /[^"\\]+/)),
-    _multiline_string_fragment: () =>
-      prec.right(choice(
-        /[^"]+/,
-        seq(/"[^"]*/, repeat(/[^"]+/))
-      )),
+
+    string_fragment: _ => token.immediate(prec(1, /[^"\\]+/)),
+    _multiline_string_fragment: _ => choice(
+      /[^"\\]+/,
+      seq(/"([^"\\]|\\")*/),
+    ),
 
     string_interpolation: $ => seq(
       '\\{',
@@ -194,12 +192,11 @@ module.exports = grammar({
       '}'
     ),
 
-    _escape_sequence: $ =>
-      choice(
-        prec(2, token.immediate(seq('\\', /[^abfnrtvxu'\"\\\?]/))),
-        prec(1, $.escape_sequence)
-      ),
-    escape_sequence: () => token.immediate(seq(
+    _escape_sequence: $ => choice(
+      prec(2, token.immediate(seq('\\', /[^abfnrtvxu'\"\\\?]/))),
+      prec(1, $.escape_sequence)
+    ),
+    escape_sequence: _ => token.immediate(seq(
       '\\',
       choice(
         /[^xu0-7]/,
@@ -209,7 +206,7 @@ module.exports = grammar({
         /u{[0-9a-fA-F]+}/
       ))),
 
-    null_literal: $ => 'null',
+    null_literal: _ => 'null',
 
     // Expressions
 
@@ -383,8 +380,14 @@ module.exports = grammar({
 
     _unqualified_object_creation_expression: $ => prec.right(seq(
       'new',
-      repeat($._annotation),
-      field('type_arguments', optional($.type_arguments)),
+      choice(
+        seq(
+          repeat($._annotation),
+          field('type_arguments', $.type_arguments),
+          repeat($._annotation),
+        ),
+        repeat($._annotation),
+      ),
       field('type', $._simple_type),
       field('arguments', $.argument_list),
       optional($.class_body)
@@ -1017,13 +1020,15 @@ module.exports = grammar({
     ),
 
     annotation_type_body: $ => seq(
-      '{', repeat(choice(
+      '{',
+      repeat(choice(
         $.annotation_type_element_declaration,
         $.constant_declaration,
         $.class_declaration,
         $.interface_declaration,
         $.enum_declaration,
-        $.annotation_type_declaration
+        $.annotation_type_declaration,
+        ';',
       )),
       '}'
     ),
@@ -1192,8 +1197,13 @@ module.exports = grammar({
 
     formal_parameters: $ => seq(
       '(',
-      optional($.receiver_parameter),
-      commaSep(choice($.formal_parameter, $.spread_parameter)),
+      choice(
+        $.receiver_parameter,
+        seq(
+          optional(seq($.receiver_parameter, ',')),
+          commaSep(choice($.formal_parameter, $.spread_parameter)),
+        ),
+      ),
       ')'
     ),
 
